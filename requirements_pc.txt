@@ -1,0 +1,7 @@
+torch
+numpy
+onnx
+onnxruntime
+matplotlib>=3.10
+tqdm
+psutil

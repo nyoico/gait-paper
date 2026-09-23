@@ -1,0 +1,44 @@
+{
+  "device": "cuda",
+  "num_samples": 1994,
+  "input_shape": [
+    1994,
+    101,
+    10
+  ],
+  "sensor_dim_per_side": 5,
+  "target_mode": "ground-truth",
+  "class_level": "12",
+  "output_classes": [
+    "HC",
+    "H_P",
+    "H_C",
+    "H_F",
+    "K_P",
+    "K_F",
+    "K_R",
+    "A_F",
+    "A_R",
+    "A_L",
+    "C_F",
+    "C_A"
+  ],
+  "baseline": "zero in standardized space (training-channel mean)",
+  "n_steps": 50,
+  "num_segments": 25,
+  "min_seg_len": 5,
+  "max_seg_len": 25,
+  "alpha_batch_size": 5,
+  "seed": 42,
+  "prediction_accuracy_on_explained_subset": 0.90320962888666,
+  "example_heatmap_color_limits": {
+    "left_signed_symmetric_limit": 0.08487550914287567,
+    "right_signed_symmetric_limit": 0.10955855995416641,
+    "note": "Figures carry no colorbar. Each signed heatmap spans [-limit, +limit] of its own side."
+  },
+  "example_heatmap_color_schemes": [
+    "default",
+    "cividis",
+    "managua"
+  ]
+}

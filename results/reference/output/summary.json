@@ -1,0 +1,14 @@
+{
+  "best_epoch": 92,
+  "best_val_acc": 0.9915522703273495,
+  "test_acc": 0.90320962888666,
+  "total_params": 7383052,
+  "trainable_params": 7383052,
+  "non_trainable_params": 0,
+  "num_train": 61266,
+  "num_val": 1894,
+  "num_test": 1994,
+  "checkpoint_best": "checkpoints\\best_model.pt",
+  "checkpoint_last": "checkpoints\\last_model.pt",
+  "output_dir": "output"
+}

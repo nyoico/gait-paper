@@ -1,0 +1,29 @@
+{
+  "best_epoch": 116,
+  "best_val_accuracy_12class": 0.9904963041182682,
+  "best_val_accuracy": 0.9904963041182682,
+  "test_accuracy_12class": 0.905717151454363,
+  "test_accuracy_5class": 0.9167502507522568,
+  "test": {
+    "fine_loss": 0.46561868722319844,
+    "fine_accuracy": 0.905717151454363,
+    "group_accuracy": 0.9167502507522568,
+    "accuracy_12class": 0.905717151454363,
+    "accuracy_5class": 0.9167502507522568
+  },
+  "parameters": {
+    "total": 4161206,
+    "trainable": 4161206,
+    "non_trainable": 0
+  },
+  "latency": {
+    "mean_ms": 3.816098551750183,
+    "std_ms": 0.6195538758973879,
+    "warmup": 20,
+    "repeat": 100,
+    "device": "cuda",
+    "batch_size": 1,
+    "note": "Fake-quantized PyTorch latency; not real INT8-kernel latency."
+  },
+  "checkpoint": "checkpoints\\best_student_fp.pt"
+}

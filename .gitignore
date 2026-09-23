@@ -1,0 +1,43 @@
+# Python and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.env
+.env.*
+
+# Datasets, checkpoints, exports and per-sample outputs
+/processed_data/
+/checkpoints/
+/checkpoints_save/
+/output/
+/output_save/
+/outputs/
+/save/
+/inference_output/
+/received/
+/ue_export*/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.npy
+*.npz
+*.db
+*.log
+/deploy/*
+!/deploy/labels.json
+/onnx_dataset_results.json
+/onnx_dataset_predictions.csv
+
+# Curated figures and results/reference/ remain version controlled.

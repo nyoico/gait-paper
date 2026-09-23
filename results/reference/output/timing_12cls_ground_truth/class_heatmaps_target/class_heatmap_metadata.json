@@ -1,0 +1,59 @@
+{
+  "input_dir": "output\\timing_12cls_ground_truth",
+  "output_dir": "output\\timing_12cls_ground_truth\\class_heatmaps_target",
+  "group_by": "target",
+  "attribution_target_mode": "ground-truth",
+  "num_samples": 1994,
+  "input_shape": [
+    1994,
+    101,
+    10
+  ],
+  "class_names": [
+    "HC",
+    "H_P",
+    "H_C",
+    "H_F",
+    "K_P",
+    "K_F",
+    "K_R",
+    "A_F",
+    "A_R",
+    "A_L",
+    "C_F",
+    "C_A"
+  ],
+  "class_counts": {
+    "HC": 240,
+    "H_P": 40,
+    "H_C": 134,
+    "H_F": 163,
+    "K_P": 66,
+    "K_F": 257,
+    "K_R": 137,
+    "A_F": 347,
+    "A_R": 28,
+    "A_L": 138,
+    "C_F": 444,
+    "C_A": 0
+  },
+  "min_samples": 1,
+  "shared_signed_color_limit": 0.020811037607491013,
+  "shared_absolute_color_limit": 0.044388960674405085,
+  "all_classes_time_color_limit": 0.031438377499580394,
+  "all_classes_sensor_color_limit": 0.013367202030494808,
+  "color_limit_note": "Figures carry no colorbar. Signed maps span [-shared_signed_color_limit, +shared_signed_color_limit]; absolute maps span [0, the matching limit].",
+  "color_schemes": [
+    "default",
+    "cividis",
+    "managua"
+  ],
+  "color_scheme_dirs": {
+    "default": "output\\timing_12cls_ground_truth\\class_heatmaps_target\\default",
+    "cividis": "output\\timing_12cls_ground_truth\\class_heatmaps_target\\cividis",
+    "managua": "output\\timing_12cls_ground_truth\\class_heatmaps_target\\managua"
+  },
+  "dpi": 300,
+  "font_scale": 1.0,
+  "primary_recommended_output": "output\\timing_12cls_ground_truth\\class_heatmaps_target\\default\\all_classes_time_importance_mean_absolute.png"
+}

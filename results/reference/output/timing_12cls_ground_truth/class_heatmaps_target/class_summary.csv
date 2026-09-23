@@ -1,0 +1,13 @@
+class_index,class_name,sample_count,heatmap_created,group_by,attribution_target_mode
+0,HC,240,True,target,ground-truth
+1,H_P,40,True,target,ground-truth
+2,H_C,134,True,target,ground-truth
+3,H_F,163,True,target,ground-truth
+4,K_P,66,True,target,ground-truth
+5,K_F,257,True,target,ground-truth
+6,K_R,137,True,target,ground-truth
+7,A_F,347,True,target,ground-truth
+8,A_R,28,True,target,ground-truth
+9,A_L,138,True,target,ground-truth
+10,C_F,444,True,target,ground-truth
+11,C_A,0,False,target,ground-truth

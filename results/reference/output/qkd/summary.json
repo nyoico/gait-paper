@@ -1,0 +1,66 @@
+{
+  "method": "QKD: SS + CS + TU",
+  "temperature": 2.0,
+  "phase_epochs": {
+    "ss": 30,
+    "cs": 30,
+    "tu": 40
+  },
+  "best_val_accuracy": {
+    "ss": 0.984688489968321,
+    "cs": 0.9873284054910243,
+    "tu": 0.9889123548046462
+  },
+  "best_val_accuracy_5class": {
+    "ss": 0.9873284054910243,
+    "cs": 0.9883843717001056,
+    "tu": 0.9904963041182682
+  },
+  "stage_accuracy": {
+    "ss": {
+      "best_val_accuracy_12class": 0.984688489968321,
+      "best_val_accuracy_5class": 0.9873284054910243,
+      "test_accuracy_12class": 0.8891675025075225,
+      "test_accuracy_5class": 0.9037111334002006
+    },
+    "cs": {
+      "best_val_accuracy_12class": 0.9873284054910243,
+      "best_val_accuracy_5class": 0.9883843717001056,
+      "test_accuracy_12class": 0.9012036108324974,
+      "test_accuracy_5class": 0.9167502507522568,
+      "teacher_val_accuracy_12class_at_best_student": 0.9883843717001056,
+      "teacher_val_accuracy_5class_at_best_student": 0.989440337909187,
+      "teacher_test_accuracy_12class": 0.9017051153460381,
+      "teacher_test_accuracy_5class": 0.9142427281845537
+    },
+    "tu": {
+      "best_val_accuracy_12class": 0.9889123548046462,
+      "best_val_accuracy_5class": 0.9904963041182682,
+      "test_accuracy_12class": 0.9097291875626881,
+      "test_accuracy_5class": 0.9207622868605817
+    }
+  },
+  "test": {
+    "fine_loss": 0.8074684420653896,
+    "fine_accuracy": 0.9097291875626881,
+    "group_accuracy": 0.9207622868605817,
+    "accuracy_12class": 0.9097291875626881,
+    "accuracy_5class": 0.9207622868605817
+  },
+  "student_parameters": {
+    "total": 4161206,
+    "trainable": 4161206,
+    "non_trainable": 0
+  },
+  "latency": {
+    "mean_ms": 22.225478477478028,
+    "std_ms": 1.6502824808707488,
+    "warmup": 20,
+    "repeat": 100,
+    "device": "cuda",
+    "batch_size": 1,
+    "note": "Fake-quantized PyTorch latency; not real INT8-kernel latency."
+  },
+  "checkpoint": "checkpoints\\best_student_qkd.pt",
+  "important_note": "This checkpoint performs fake-quantized floating-point execution. A separate backend-specific conversion is required for real INT8 kernels."
+}
