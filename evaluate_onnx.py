@@ -8,7 +8,7 @@ import onnxruntime as ort
 
 
 # ============================================================
-# 직접 경로 / 실행 설정 지정
+# Configure paths and execution settings
 # ============================================================
 MODEL_PATH = Path("deploy/student_qkd_int8.onnx")
 PROCESSED_DIR = Path("processed_data")
@@ -18,7 +18,7 @@ LABELS_PATH = Path("deploy/labels.json")
 BATCH_SIZE = 64
 THREADS = 4
 
-# 결과 JSON을 저장하지 않으려면 None으로 설정
+# Set to None to disable saving the results as JSON
 OUTPUT_PATH: Path | None = Path("output/onnx_test_result.json")
 
 
@@ -84,7 +84,7 @@ def confusion_matrix(
 
 def main() -> None:
     # --------------------------------------------------------
-    # 파일 확인
+    # Verify required files
     # --------------------------------------------------------
     required_paths = [
         MODEL_PATH,

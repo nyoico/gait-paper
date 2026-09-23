@@ -1,23 +1,23 @@
-"""학습된 QAT scale을 Q/DQ 노드로 표현하여 ONNX로 내보낸다.
+"""Export to ONNX with learned QAT scales represented by Q/DQ nodes.
 
-export_qkd_to_onnx.py와 헷갈리지 마십시오. 둘은 한 줄만 다릅니다.
+The key difference from export_qkd_to_onnx.py is the quantization preparation step.
 
-    export_qkd_to_onnx.py : disable_quantization() -> 순수 FP32 그래프.
-        이후 quantize_onnx_int8.py가 calibration으로 INT8을 만든다.
-        학습으로 얻은 scale은 쓰이지 않는다.
+    export_qkd_to_onnx.py : disable_quantization() -> plain FP32 graph.
+        Subsequently, quantize_onnx_int8.py uses calibration to produce INT8.
+        The scales learned during training are not used.
 
-    이 파일                : prepare_qat_model_for_onnx() -> train_qkd.py가
-        SS/CS/TU 동안 학습한 scale을 그대로 QuantizeLinear/DequantizeLinear
-        쌍으로 굽는다. 별도 calibration이 필요 없다.
+    This file             : prepare_qat_model_for_onnx() -> embed the scales
+        learned by train_qkd.py during SS/CS/TU directly in
+        QuantizeLinear/DequantizeLinear pairs. No additional calibration is needed.
 
-가중치는 float32로 남고 Q/DQ가 값의 범위를 제한하는 형태입니다. 파일 크기는
-정적 INT8보다 크지만, ONNX Runtime이 더 많은 연산을 정수 커널로 융합할 수
-있습니다. 실제로 어떤 연산이 정수로 실행되는지는 실행 백엔드에 달려 있으며,
-Q/DQ 노드의 존재만으로 INT8 실행을 단정할 수 없습니다. check.py는 노드
-존재 여부만 검사합니다.
+Weights remain in float32, while Q/DQ constrains the range of values. The file is
+larger than a static INT8 export, but ONNX Runtime may fuse more operations into
+integer kernels. The operations that actually execute in integer arithmetic
+depend on the execution backend; the presence of Q/DQ nodes alone does not
+establish INT8 execution. check.py only verifies the presence of these nodes.
 
-기본 출력은 deploy/student_qkd_qat_qdq.onnx이며 check.py가 읽는 경로와
-같습니다.
+The default output is deploy/student_qkd_qat_qdq.onnx, which matches the path
+read by check.py.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from qkd_model import QKDStudentModel, LearnedStepFakeQuantizer
 @torch.no_grad()
 def prepare_qat_model_for_onnx(model: QKDStudentModel) -> None:
     """
-    학습된 QAT scale을 고정하고 모든 fake quantizer를 활성화한다.
+    Freeze the learned QAT scales and enable all fake quantizers.
     """
 
     uninitialized = []
@@ -61,7 +61,7 @@ def prepare_qat_model_for_onnx(model: QKDStudentModel) -> None:
 
     if uninitialized:
         raise RuntimeError(
-            "초기화되지 않은 quantizer가 있습니다: "
+            "Uninitialized quantizers were found: "
             + ", ".join(uninitialized)
         )
 

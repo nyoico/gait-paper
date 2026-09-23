@@ -223,11 +223,11 @@ def save_example_heatmaps(
     color_schemes: list[str] | None = None,
     dpi: int = FIGURE_DPI,
 ) -> list[str]:
-    """예시 히트맵을 여러 color scheme으로 저장하고 쓴 scheme 목록을 돌려줍니다.
+    """Save example heatmaps in multiple color schemes and return the schemes used.
 
-    색각이상 유형마다 잘 보이는 색이 달라 기본값이 여러 개입니다.
-    컬러바는 그리지 않으므로 색 범위는 metadata.json의
-    example_heatmap_color_limits에서 확인하십시오.
+    Multiple defaults accommodate differences in readability across CVD types.
+    Colorbars are omitted; see example_heatmap_color_limits in metadata.json
+    for the color ranges.
     """
     if signed_attr.shape[0] == 0:
         return []
@@ -487,7 +487,7 @@ def main() -> None:
     )
     print(f"example heatmap color schemes: {', '.join(written_schemes) or '(none)'}")
 
-    # 컬러바를 그리지 않으므로 예시 히트맵의 색 범위를 metadata에 남깁니다.
+    # Record example heatmap color limits in metadata because colorbars are omitted.
     if signed.shape[0] > 0:
         left_limit = max(float(np.abs(signed[0, :, :sensor_dim]).max()), 1e-12)
         right_limit = max(float(np.abs(signed[0, :, sensor_dim:]).max()), 1e-12)

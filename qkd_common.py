@@ -17,7 +17,7 @@ from plot_style import (
     confusion_text_color,
 )
 
-# 이 모듈을 쓰는 모든 스크립트의 그림에 논문용 폰트/해상도 설정을 적용합니다.
+# Apply publication font and resolution settings to figures in all scripts using this module.
 apply_paper_style()
 
 
@@ -27,7 +27,7 @@ VALID_CLASSES = [
     "A_F", "A_R", "A_L",
     "C_F", "C_A",
 ]
-# 5-class 그룹 순서는 train.py의 COARSE_CLASSES와 같게 맞춘다.
+# Keep the five-class group order consistent with COARSE_CLASSES in train.py.
 GROUP_CLASSES = ["HC", "H", "K", "A", "C"]
 
 LABEL_TO_IDX = {label: idx for idx, label in enumerate(VALID_CLASSES)}
@@ -426,7 +426,7 @@ def plot_confusion(
     plt.xticks(np.arange(len(labels)), labels, rotation=45, ha="right")
     plt.yticks(np.arange(len(labels)), labels)
 
-    # 색이 진한 셀에서는 흰 글씨로 바꿔 숫자가 항상 읽히게 합니다.
+    # Use white text in dark cells to keep the numbers legible.
     vmax = float(matrix.max()) if matrix.size else 0.0
     for i in range(matrix.shape[0]):
         for j in range(matrix.shape[1]):

@@ -1,51 +1,114 @@
-# Gait Classification with QKD
+# Gait Classification with Quantization-Aware Knowledge Distillation
 
-좌우 보행 시계열을 분류하는 Transformer teacher, 경량 FP32 student, Quantization-aware Knowledge Distillation(QKD), ONNX 배포 및 TIMING 설명 코드입니다. 기존 작업 폴더에서 논문용으로 필요한 소스와 일부 결과를 선별한 저장소입니다.
+## Overview
 
-기존 `README.md`, `README_QKD.md`, `docs/`의 실행 안내를 현재 소스 기준으로 통합했습니다. Python 소스는 원본 그대로 복사했으며, 실제 import에 필요한 두 teacher 모델 파일도 함께 보존했습니다. 원시·가공 데이터와 학습 가중치는 포함하지 않습니다.
+This repository provides a research implementation for classifying bilateral gait time series using a Transformer teacher, a compact floating-point student, and quantization-aware knowledge distillation (QKD). The workflow comprises supervised model training, three-stage QKD, ONNX export, deployment evaluation on PCs and Raspberry Pi devices, and temporal attribution with TIMING.
 
-## 1. 저장소 구성
+The classification task comprises 12 fine-grained classes and five coarse groups. The repository includes source code, selected figures, and archived experimental summaries. Raw data, processed datasets, trained checkpoints, and exported models must be obtained or generated separately.
 
-| 파일 / 경로 | 역할 |
+## Methodology
+
+### Model architecture
+
+The teacher embeds the left and right sensor sequences separately using pointwise convolutions and batch normalization, adds the two embeddings, and applies sinusoidal positional encoding. A Transformer encoder-decoder produces class logits from a single decoder input token. The student retains this structure with a reduced embedding dimension and feed-forward width and introduces learnable fake quantizers.
+
+| Configuration | Teacher | Student |
+| --- | ---: | ---: |
+| Input channels per side | 5 | 5 |
+| Embedding dimension | 256 | 192 |
+| Attention heads | 8 | 6 |
+| Encoder / decoder layers | 4 / 4 | 4 / 4 |
+| Feed-forward dimension | 1,024 | 768 |
+| Dropout | 0.1 | 0.1 |
+| Output classes | 12 | 12 |
+
+The floating-point (FP32) baseline trains the student with quantization disabled. QKD initializes this student from its FP32 checkpoint and enables learned step-size fake quantization, with eight-bit weights and activations (W8A8) by default. Fake quantization simulates quantization during floating-point computation; integer execution is addressed separately during deployment.
+
+### Distillation procedure
+
+The QKD schedule in [train_qkd.py](train_qkd.py) consists of three consecutive stages:
+
+| Stage | Training procedure | Default epochs |
+| --- | --- | ---: |
+| Self-studying (SS) | Optimize the quantized student using supervised cross-entropy. | 30 |
+| Co-studying (CS) | Update both teacher and student using supervised and mutual distillation objectives. | 30 |
+| Tutoring (TU) | Fix the teacher and refine the student using supervised learning and distillation. | 40 |
+
+During CS and TU, the student objective is
+
+$$
+\mathcal{L}_{S}
+=
+\operatorname{CE}(y, z_S)
++
+\tau^2 \operatorname{KL}
+\left(
+\operatorname{softmax}(z_T/\tau)
+\;\middle\|\;
+\operatorname{softmax}(z_S/\tau)
+\right),
+$$
+
+where $z_T$ and $z_S$ are the teacher and student logits, respectively, and $\tau=2$ is the default temperature. The teacher distribution is detached when computing the student objective. During CS, the teacher uses the analogous objective with the roles reversed and a detached student distribution. SS uses cross-entropy alone.
+
+### Data representation and evaluation protocol
+
+Each sample contains synchronized left and right inputs with shape `[5, T]`. The loaders accept arrays shaped `[N, 5, T]` or `[N, T, 5]`, where `N` denotes the sample count. The reference configuration uses `T=101`; training sets the model sequence length from the supplied data. Channel order must match the original preprocessing convention. The repository does not specify the physical interpretation or units of the channels.
+
+The class index order is:
+
+```text
+HC, H_P, H_C, H_F, K_P, K_F, K_R, A_F, A_R, A_L, C_F, C_A
+```
+
+Coarse labels follow the order `HC, H, K, A, C`. Five-class accuracy is computed by mapping the fine-class argmax and the ground-truth label to their respective groups.
+
+The default scripts use seed 42 and reserve approximately 3% of the supplied training samples for validation. Normalization statistics are computed independently for each side and channel over the full supplied training arrays, **before** the validation split. Consequently, validation samples contribute to these statistics. The QKD stages reuse the split indices and normalization statistics stored in the FP32 student checkpoint.
+
+This is a sample-level validation procedure. The repository does not establish subject- or session-independent separation, and it does not construct the externally supplied train/test split. Checkpoint selection uses 12-class validation accuracy.
+
+## Repository organization
+
+| File or directory | Purpose |
 | --- | --- |
-| `model.py`, `model_teacher_original.py` | Teacher 모델. QKD 학습과 일부 추론 코드는 후자를 직접 import |
-| `qkd_model.py`, `qkd_common.py` | Student, 학습 가능한 fake quantizer, 데이터 로딩·정규화·평가 |
-| `train.py`, `train_student_fp.py`, `train_qkd.py` | Teacher → FP student → QKD 학습 |
-| `inference.py` | 기본 teacher 체크포인트 평가 |
-| `export_qkd_to_onnx.py`, `quantize_onnx_int8.py` | FP32 ONNX 내보내기 및 train calibration 기반 INT8 변환 |
-| `export_qkd_qat_qdq.py`, `check.py` | 학습된 QAT scale을 보존하는 Q/DQ 내보내기와 노드 검사 |
-| `evaluate_onnx.py`, `run_onnx_rpi.py` | ONNX 정확도 평가 및 PC/Pi 추론·벤치마크 |
-| `timing.py`, `explain_timing.py`, `plot_timing_class_heatmaps.py` | TIMING attribution 계산 및 클래스별 시각화 |
-| `plot_style.py`, `plot_figures.py` | 공통 그림 스타일, 혼동행렬·학습곡선 생성 |
-| `pi_receive.py`, `export_normalization.py` | 선택 기능: ESP32 직렬 수신, 정규화 통계 내보내기 |
-| `prepare_gait_nne.py` | 선택 기능: Unreal NNE용 teacher ONNX 내보내기·수치 검증 |
-| `requirements_pc.txt`, `requirements_rpi.txt` | PC 학습·분석 / Pi 실행 의존성 |
-| `deploy/labels.json` | 12개 클래스 인덱스와 레이블 대응 |
-| `results/reference/output/` | 기존 실행의 요약·학습 기록·클래스 보고서·TIMING 메타데이터 |
-| `figures/` | 선별한 혼동행렬·학습곡선 14개와 TIMING 요약 그림 2개 |
-| `FILE_MANIFEST.csv` | 복사 파일의 원래 상대경로, 저장 위치, SHA-256 및 변경 여부 |
+| `model.py`, `model_teacher_original.py` | Teacher implementations used by training, distillation, and inference scripts. |
+| `qkd_model.py`, `qkd_common.py` | Student architecture, learned fake quantization, data preparation, and evaluation utilities. |
+| `train.py`, `train_student_fp.py`, `train_qkd.py` | Teacher, FP32 student, and QKD training. |
+| `inference.py` | Teacher checkpoint evaluation. |
+| `export_qkd_to_onnx.py`, `quantize_onnx_int8.py` | FP32 export and calibration-based static INT8 quantization. |
+| `export_qkd_qat_qdq.py`, `check.py` | Export of learned QAT scales as Q/DQ nodes and graph inspection. |
+| `evaluate_onnx.py`, `run_onnx_rpi.py` | ONNX accuracy evaluation and inference benchmarking. |
+| `timing.py`, `explain_timing.py`, `plot_timing_class_heatmaps.py` | TIMING attribution and class-level visualizations. |
+| `plot_style.py`, `plot_figures.py` | Shared figure styling, confusion matrices, and learning curves. |
+| `pi_receive.py`, `export_normalization.py`, `prepare_gait_nne.py` | Optional serial acquisition, normalization export, and Unreal NNE export. |
+| `deploy/labels.json` | Fine-class index-to-label mapping. |
+| `results/reference/output/` | Archived summaries, training histories, classification reports, and attribution metadata. |
+| `figures/` | Selected confusion matrices, learning curves, and TIMING summary figures. |
+| `FILE_MANIFEST.csv` | File provenance and SHA-256 hashes recorded when the repository was assembled. |
 
-새 실행 결과는 `output/`, `checkpoints/`, `deploy/` 등에 생성됩니다. 기존 기록은 `results/reference/`에 분리해 두었습니다.
+New runs write to `checkpoints/`, `output/`, and `deploy/`. Archived records are retained separately in `results/reference/`.
 
-## 2. 실행 환경
+## Experimental setup
 
-Python 3.10 이상을 사용하고, 명령은 모두 이 저장소 루트에서 실행합니다.
+### Environment
+
+Use Python 3.10 or later and execute commands from the repository root.
 
 ```bash
 python -m venv .venv
 ```
 
-Windows PowerShell에서는 `.venv\Scripts\Activate.ps1`, Linux/macOS에서는 `source .venv/bin/activate`로 환경을 활성화합니다.
+Activate the environment with `.venv\Scripts\Activate.ps1` in Windows PowerShell or `source .venv/bin/activate` on Linux/macOS, then install the PC dependencies:
 
 ```bash
 python -m pip install -r requirements_pc.txt
 ```
 
-CUDA를 사용할 경우 실행 장비에 맞는 PyTorch 환경이 필요합니다. 현재 요구사항은 버전 잠금 파일이 아닙니다. TIMING 기본 색상맵을 위해 `matplotlib>=3.10`을 명시했습니다. Pi 직렬 수신 의존성인 `pyserial`은 `requirements_rpi.txt`에 포함했습니다.
+GPU execution requires a PyTorch installation compatible with the local CUDA environment. The requirements files are dependency lists rather than complete environment lock files. `matplotlib>=3.10` is required for the default plotting colormaps. Raspberry Pi dependencies, including `pyserial` for optional serial acquisition, are listed in `requirements_rpi.txt`.
 
-## 3. 데이터 준비
+### Required data
 
-다음 8개 파일을 별도로 준비합니다. 이 폴더에는 원시 데이터에서 아래 NPY를 만드는 완전한 전처리 파이프라인이 없어, 이 저장소만으로 원시 데이터부터 전체 실험을 재현할 수는 없습니다.
+Supply the following eight NumPy files:
 
 ```text
 processed_data/
@@ -59,15 +122,11 @@ processed_data/
 └── y_right_test.npy
 ```
 
-- 입력 X: 좌우 각각 `[N, 5, T]` 또는 `[N, T, 5]`. 기존 실험과 배포 예시는 `T=101`이며, 학습 스크립트는 실제 데이터의 시간 길이로 모델의 `max_len`을 설정합니다.
-- 레이블 y: 샘플별 문자열 클래스. 좌우 샘플 수·순서·레이블이 일치해야 합니다.
-- 채널 순서는 기존 데이터와 동일하게 유지합니다. 채널의 물리적 의미나 단위를 이 저장소에서 새로 정의하지 않습니다.
-- 12개 클래스 순서: `HC, H_P, H_C, H_F, K_P, K_F, K_R, A_F, A_R, A_L, C_F, C_A`.
-- 기본 학습 코드의 5개 그룹 순서: `HC, H, K, A, C`. 12개 예측의 argmax를 상위 그룹으로 매핑해 5클래스 정확도를 계산합니다.
+Label arrays contain one class string per sample. Left and right arrays must have matching sample counts, ordering, and labels. A complete pipeline from raw measurements to these arrays is not included; reproduction therefore begins with externally prepared data.
 
-기본 학습은 seed 42, train 배열의 약 3%를 validation으로 사용하는 샘플 단위 분할입니다. 정규화 통계는 validation 분리 전 전체 train 배열에서 좌우별·채널별로 계산합니다. 피험자/세션 독립 분할을 수행한 코드로 해석해서는 안 됩니다. QKD는 FP student 체크포인트에 저장된 분할과 정규화 통계를 재사용합니다.
+### Training and teacher evaluation
 
-## 4. 학습 및 teacher 평가
+Run the training stages in order:
 
 ```bash
 python train.py
@@ -75,137 +134,145 @@ python train_student_fp.py
 python train_qkd.py
 ```
 
-세 학습 스크립트는 명령행 옵션 대신 파일 상단의 경로·하이퍼파라미터 상수를 사용합니다.
+These scripts use configuration constants near the top of each file rather than command-line arguments. Teacher and FP32 student training default to a batch size of 32, an initial learning rate of `3e-4`, weight decay of `1e-4`, label smoothing of 0.05, and up to 300 epochs with an early-stopping patience of 20 epochs.
 
-| 단계 | 기본 구성 | 주요 출력 |
+| Training stage | Principal checkpoint(s) | Results directory |
 | --- | --- | --- |
-| Teacher | embedding 256, 8 heads, 4 layers, FFN 1024 | `checkpoints/best_model.pt`, `output/` |
-| FP student | embedding 192, 6 heads, 4 layers, FFN 768 | `checkpoints/best_student_fp.pt`, `output/student_fp/` |
-| QKD | W8A8, temperature 2, SS/CS/TU = 30/30/40 epochs | `best_student_ss.pt`, `best_qkd_cs.pt`, `best_student_qkd.pt` 및 `output/qkd/` |
+| Teacher | `checkpoints/best_model.pt` | `output/` |
+| FP32 student | `checkpoints/best_student_fp.pt` | `output/student_fp/` |
+| QKD | `checkpoints/best_student_ss.pt`, `checkpoints/best_qkd_cs.pt`, `checkpoints/best_student_qkd.pt` | `output/qkd/` |
 
-QKD의 SS는 학생의 CE 학습, CS는 교사·학생의 상호 학습, TU는 교사를 고정한 학생 학습입니다. CS/TU의 학생 손실은 `CE + T² × KL`입니다. QKD 실행 전에 teacher와 FP student 체크포인트가 모두 필요합니다.
+QKD requires both the teacher and FP32 student checkpoints. Evaluate the standard teacher checkpoint with:
 
 ```bash
 python inference.py --checkpoint checkpoints/best_model.pt --data-dir processed_data
 ```
 
-`inference.py`의 기본 모델 평가 경로를 사용합니다. 이 저장소에서 제외한 Optuna 실험의 architecture v2 체크포인트는 지원 대상으로 안내하지 않습니다.
+The documented workflow uses the standard model architecture. Legacy architecture-v2 checkpoints from excluded Optuna experiments are outside this workflow.
 
-## 5. ONNX 내보내기 및 평가
+## ONNX export and deployment evaluation
 
-### 5.1 FP32 내보내기 → calibration 기반 INT8
+### FP32 export and calibration-based INT8 quantization
 
 ```bash
 python export_qkd_to_onnx.py --checkpoint checkpoints/best_student_qkd.pt --output deploy/student_qkd_fp32.onnx
 python quantize_onnx_int8.py --input deploy/student_qkd_fp32.onnx --output deploy/student_qkd_int8.onnx --processed-dir processed_data --normalization deploy/normalization.npz --calibration-samples 512
 ```
 
-첫 명령은 모델과 함께 `deploy/normalization.npz`, `deploy/labels.json`을 생성합니다. 이 경로는 QKD master weight를 fake quantization 없이 내보낸 후, train 데이터만 사용해 INT8 scale을 다시 계산합니다. 선택적으로 `--calibration-method percentile --calibration-samples 1024`를 비교할 수 있습니다.
+The exporter writes an FP32 graph with fake quantization disabled, together with `normalization.npz` and `labels.json` in the output directory. Static quantization then estimates new scales from the supplied training arrays; the scales learned during QKD are not retained by this route. The default calibration method is min-max. Alternative settings include `--calibration-method percentile --calibration-samples 1024`.
 
-PC와 Raspberry Pi에서 동일한 CLI로 모델별 정확도와 추론 시간을 기록할 수 있습니다.
-
-```bash
-python run_onnx_rpi.py --model deploy/student_qkd_fp32.onnx --output output/fp32_results.json --predictions output/fp32_predictions.csv
-python run_onnx_rpi.py --model deploy/student_qkd_int8.onnx --output output/int8_results.json --predictions output/int8_predictions.csv
-```
-
-기본 데이터 위치는 `processed_data/`, 정규화·레이블 위치는 `deploy/`입니다. `y_left_test.npy`가 있으면 정확도를 평가하고, 없으면 예측만 저장합니다. `--index 0`은 단일 샘플 실행입니다. `--threads 1`, `2`, `4`를 각각 측정해 비교할 수 있습니다.
-
-`evaluate_onnx.py`도 사용할 수 있지만 **CLI 옵션이 없습니다**. 상단 `MODEL_PATH`, `NORMALIZATION_PATH`, `LABELS_PATH`, `OUTPUT_PATH` 등을 설정한 뒤 아래와 같이 실행합니다. 기존 문서의 `evaluate_onnx.py --model ... --output ...` 예시는 현재 코드에 적용되지 않습니다.
-
-```bash
-python evaluate_onnx.py
-```
-
-### 5.2 학습된 QAT scale을 보존하는 별도 경로
+### Export retaining learned QAT scales
 
 ```bash
 python export_qkd_qat_qdq.py --checkpoint checkpoints/best_student_qkd.pt --output deploy/student_qkd_qat_qdq.onnx
 python check.py
 ```
 
-QAT exporter의 기본 출력은 `deploy/student_qkd_qat_qdq.onnx`입니다. 위 명령은 비교할 모델을 구분하기 위해 경로를 명시했습니다. `check.py`는 이 경로의 ONNX 구조와 QuantizeLinear/DequantizeLinear 노드를 검사합니다.
+This route represents the learned quantization scales with `QuantizeLinear`/`DequantizeLinear` (Q/DQ) nodes and requires no separate calibration. `check.py` validates the graph at the default output path and checks for these nodes. Their presence alone does not establish integer-kernel coverage or a deployment speedup; execution depends on the runtime backend.
 
-PyTorch fake quantization은 부동소수점 실행입니다. Q/DQ 노드가 있는 ONNX도 전체 연산이 INT8 커널로 실행되거나 속도가 개선된다는 뜻은 아닙니다. 모델별 정확도와 배포 장비에서의 실행 시간을 별도로 측정해야 합니다. 기록되는 latency는 주로 모델 실행 구간이며 데이터 로딩·저장까지 포함한 전체 처리 시간이 아닙니다. RSS는 프로세스 메모리입니다.
+### Accuracy and runtime measurement
 
-## 6. Raspberry Pi 및 선택 배포 기능
+The same command-line interface supports PC and Raspberry Pi evaluation:
 
-Pi의 같은 폴더에 다음 파일을 배치합니다.
-
-```text
-run_onnx_rpi.py, requirements_rpi.txt
-student_qkd_int8.onnx, normalization.npz, labels.json
-X_left_test.npy, X_right_test.npy
-y_left_test.npy  (정확도 평가 시)
+```bash
+python run_onnx_rpi.py --model deploy/student_qkd_fp32.onnx --output output/fp32_results.json --predictions output/fp32_predictions.csv
+python run_onnx_rpi.py --model deploy/student_qkd_int8.onnx --output output/int8_results.json --predictions output/int8_predictions.csv
+python run_onnx_rpi.py --model deploy/student_qkd_qat_qdq.onnx --output output/qat_qdq_results.json --predictions output/qat_qdq_predictions.csv
 ```
 
-Pi의 Python 환경에서 실행합니다.
+With the repository layout, the default inputs are located in `processed_data/` and metadata in `deploy/`. Accuracy is evaluated when `y_left_test.npy` is available; otherwise, the script records predictions without target-based metrics. Use `--index 0` for a single sample and `--threads` to set the inference thread count.
+
+Alternatively, edit `MODEL_PATH`, `NORMALIZATION_PATH`, `LABELS_PATH`, and `OUTPUT_PATH` in `evaluate_onnx.py` and run:
+
+```bash
+python evaluate_onnx.py
+```
+
+This script does not accept command-line options. Runtime measurements primarily cover model execution rather than complete data loading and output serialization. Report the device, operating system, Python and ONNX Runtime versions, thread count, and power configuration alongside timing results. RSS measurements describe process memory usage.
+
+### Raspberry Pi execution
+
+Place the following files in a single directory on the Raspberry Pi:
+
+```text
+run_onnx_rpi.py
+requirements_rpi.txt
+student_qkd_int8.onnx
+normalization.npz
+labels.json
+X_left_test.npy
+X_right_test.npy
+y_left_test.npy          # Required only for accuracy evaluation
+```
+
+Then run:
 
 ```bash
 python -m pip install -r requirements_rpi.txt
 python run_onnx_rpi.py --threads 2
 ```
 
-전체 데이터 예측은 `onnx_dataset_predictions.csv`, 요약·평가·batch-1 벤치마크는 `onnx_dataset_results.json`에 저장됩니다. 실제 실행 장비의 OS·Python·ONNX Runtime 버전, 스레드 수와 전원 설정을 실험 기록에 함께 남깁니다.
+The default outputs are `onnx_dataset_predictions.csv` and `onnx_dataset_results.json`, containing dataset predictions, evaluation results when labels are available, and a batch-one benchmark.
 
-`pi_receive.py`는 ESP32 패킷 수신용 선택 기능입니다. 상단 `SERIAL_PORT`와 `USE_MODEL_INFERENCE` 등을 설정하며, 기본값은 모델 추론을 끈 수신 모드입니다. 추론을 켜면 스크립트와 같은 폴더의 모델과 정규화 파일을 사용합니다. ESP32 송신 펌웨어는 포함되어 있지 않습니다.
+## Temporal attribution and visualization
 
-`export_normalization.py`는 train 배열에서 정규화 통계를 다시 만듭니다. 모델에 맞는 통계를 사용해야 하므로 일반 QKD 배포에는 ONNX exporter가 생성한 정규화 파일을 사용합니다.
-
-```bash
-python prepare_gait_nne.py --output ue_export
-```
-
-이 선택 명령은 teacher용 Unreal NNE 내보내기입니다. QKD 배포와 별도 경로이며, 정규화를 그래프에 포함하므로 입력을 중복 정규화하지 않습니다. Unreal 프로젝트 자체는 포함하지 않습니다.
-
-## 7. TIMING 설명과 그림 생성
+The TIMING implementation applies segment-masked integrated gradients to the teacher model. Run a small attribution experiment and aggregate the outputs by class:
 
 ```bash
 python explain_timing.py --max-samples 32 --output-dir output/timing_example
 python plot_timing_class_heatmaps.py --input-dir output/timing_example
 ```
 
-위 명령은 소규모 실행 예시입니다. 전체 test set에는 `--max-samples 0`을 사용합니다. 기본 타깃은 정답 클래스이고, `--target-mode predicted`로 예측 클래스, `--class-level 5`로 상위 그룹 확률을 설명할 수 있습니다. 5클래스 설명은 세부 클래스 확률의 합을 대상으로 하므로 fine argmax를 매핑하는 5클래스 정확도와 구분합니다.
+Use `--max-samples 0` for the complete test set. The default target is the ground-truth class; `--target-mode predicted` selects the predicted class. The reference baseline is zero in the normalized input space.
 
-TIMING baseline은 정규화된 입력의 0입니다. 계산에는 여러 forward/backward pass가 필요합니다. 기본 색상은 `default`, `cividis`, `managua`이며 `--color-scheme cividis`처럼 선택할 수 있습니다. Attribution은 모델 동작에 대한 설명으로 해석합니다.
+The option `--class-level 5` explains coarse-group probabilities obtained by summing the corresponding fine-class probabilities. This attribution target differs from the fine-argmax mapping used to calculate five-class accuracy. Attributions characterize model responses to the input and do not establish causal relationships.
+
+The default color schemes are `default`, `cividis`, and `managua`. Select a scheme with, for example, `--color-scheme cividis`. The plotting code saves color limits in accompanying metadata.
+
+Generate confusion matrices and learning curves with:
 
 ```bash
 python plot_figures.py
 ```
 
-이 명령은 학습된 체크포인트와 test 데이터를 사용해 혼동행렬을 다시 계산하고, `output/history.json`, `output/student_fp/history.json`, `output/qkd/history.json`에서 학습곡선을 그립니다. 새 학습 후 실행하는 것이 기본 경로입니다. 기존 기록을 사용할 때는 `results/reference/output/`의 세 `history.json`을 각각 해당 `output/` 위치로 복사하고, 그 실행에 대응하는 체크포인트·데이터도 별도로 준비해야 합니다. 기존 파일이 있으면 덮어쓰지 말고 사용할 실행 기록을 먼저 선택합니다.
+Confusion matrices require trained checkpoints and test data. Learning curves use `output/history.json`, `output/student_fp/history.json`, and `output/qkd/history.json`. To use archived histories, copy the desired files from `results/reference/output/` into the corresponding output locations after selecting the run to visualize; preserve any existing run outputs. Matching checkpoints and datasets must be supplied separately for confusion matrices.
 
-TIMING 그림을 다시 계산하려면 `explain_timing.py`가 생성하는 attribution 배열이 필요합니다. 저장소에 포함한 요약 CSV/JSON만으로는 재계산할 수 없습니다. 선별한 TIMING 그림의 색상 범위는 [메타데이터](results/reference/output/timing_12cls_ground_truth/class_heatmaps_target/class_heatmap_metadata.json)에 있습니다.
+Regenerating TIMING heatmaps requires the attribution arrays produced by `explain_timing.py`; the archived summary CSV and JSON files are insufficient. Color limits for the included TIMING figures are available in the [archived heatmap metadata](results/reference/output/timing_12cls_ground_truth/class_heatmaps_target/class_heatmap_metadata.json).
 
-## 8. 포함한 기존 결과
+## Archived experimental results
 
-아래 값은 복사된 기존 실행 기록이며, 저장소 정리 과정에서 재학습·성능 재검증을 수행한 결과가 아닙니다.
+The following values are transcribed from the included run summaries. They are historical observations and have not been reproduced or re-evaluated as part of this repository revision.
 
-| 기록 | 12클래스 test accuracy | 5클래스 test accuracy | 출처 |
-| --- | ---: | ---: | --- |
-| Teacher | 90.3210% | 해당 요약에 없음 | [summary](results/reference/output/summary.json) |
-| FP student | 90.5717% | 91.6750% | [summary](results/reference/output/student_fp/summary.json) |
-| QKD TU | 90.9729% | 92.0762% | [summary](results/reference/output/qkd/summary.json) |
+| Model | Reported parameters | 12-class test accuracy | 5-class test accuracy | Source |
+| --- | ---: | ---: | ---: | --- |
+| Teacher | 7,383,052 | 90.3210% | Not reported in summary | [Teacher summary](results/reference/output/summary.json) |
+| FP32 student | 4,161,206 | 90.5717% | 91.6750% | [Student summary](results/reference/output/student_fp/summary.json) |
+| QKD student, TU | 4,161,206 | 90.9729% | 92.0762% | [QKD summary](results/reference/output/qkd/summary.json) |
 
-기존 test 기록은 1,994개 샘플이며 `C_A`의 test support는 0입니다. 출력은 12클래스이지만 모든 클래스의 test 성능이 검증된 결과로 해석할 수는 없습니다. 클래스별 보고서를 함께 확인합니다.
+The archived test set contains 1,994 samples. Class `C_A` has zero test support, so the reported accuracy does not establish performance on all 12 classes. Class-specific results are provided in the [QKD classification report](results/reference/output/qkd/student_qkd_test_fine_classification_report.csv). These summaries do not establish statistical significance or performance variability across repeated runs.
 
-학습곡선·혼동행렬 PNG는 기존 그림을 선별해 복사했습니다. 원본 기록에 모델 해시와 완전한 실행 환경이 없어, 그림과 체크포인트의 대응을 이번 정리에서 다시 검증하지는 않았습니다. JSON 내부의 `checkpoint`·`output_dir` 값은 원래 실행의 상대경로입니다.
+![Archived QKD student confusion matrix for the 12-class task](figures/qkd_tu_confusion_12class_percent.png)
 
-![QKD TU 12-class confusion matrix](figures/qkd_tu_confusion_12class_percent.png)
+*Archived confusion matrix for the QKD student after tutoring. The figure is retained from an earlier experiment; correspondence to a specific checkpoint has not been independently verified.*
 
-## 9. 포함·제외 기준과 재현 범위
+The archived PyTorch QKD timing measurements use fake-quantized floating-point execution and should not be interpreted as INT8 deployment benchmarks. Exported models require separate accuracy and runtime evaluation on the target device.
 
-| 대상 | 처리 이유 |
-| --- | --- |
-| 데이터, 세션/시행 식별 배열, 샘플별 예측·attribution | 별도 준비하는 실험 입력·대량 산출물이므로 제외 |
-| `.pt`, `.onnx`, `.npz`, Optuna DB | 가중치·생성 파일은 제외하고 생성 방법을 문서화 |
-| `*_save/`, `save/`, `RaspberryPi/`, `raspberrypi_test_default/` | 백업·중복·구버전 배포 파일 제외 |
-| `train_optuna.py` | 현재 `model.py`에 없는 생성자 인자·출력 구조를 요구하여 제외 |
-| `QKD/` | 빈 `__init__.py`뿐이며 import 의존성이 없어 제외 |
-| 기존 `docs/`, README 여러 개 | 실행에 필요한 내용을 이 README로 통합 |
-| `outputs/`, 발표 자료, 결과 정리 DOCX, 임시 작업·IDE·캐시 | 외부 프로젝트 의존 그림, 문서 조각, 작업 자료와 생성물을 제외 |
-| 기존 ONNX 평가 JSON | 동일 모델 경로에 서로 다른 수치가 있고 실행 이력을 구분할 근거가 없어 제외. 내보내기 후 재평가 필요 |
+## Optional interfaces
 
-`.gitignore`는 데이터·가중치·신규 실행 산출물의 실수 업로드를 막고, 선별한 `figures/`와 `results/reference/`는 추적 가능하게 둡니다. [FILE_MANIFEST.csv](FILE_MANIFEST.csv)는 복사 시점의 파일 해시를 기록하며, 새로 작성한 README·Git 설정 파일 및 manifest 자체는 대상에 포함하지 않습니다. 요구사항 파일 2개의 변경은 manifest에 별도로 표시했습니다.
+- **ESP32 serial acquisition:** `pi_receive.py` receives sensor packets. Configure `SERIAL_PORT` and `USE_MODEL_INFERENCE` near the top of the file. Inference is disabled by default; enabling it requires model and normalization files alongside the script. ESP32 transmitter firmware is not included.
+- **Normalization export:** `export_normalization.py` computes statistics from the training arrays. Standard QKD deployment should use the checkpoint-associated statistics written by the ONNX exporter.
+- **Unreal NNE:** `python prepare_gait_nne.py --output ue_export` exports the teacher and performs numerical checks. This is separate from the QKD deployment workflow. Normalization is embedded in the exported graph, so inputs must not be normalized a second time. An Unreal project is not included.
 
-이 폴더에는 확정된 논문 제목·저자·DOI·코드 라이선스 정보가 없어 임의의 인용문이나 라이선스를 추가하지 않았습니다. 원본 데이터의 배포 조건도 이 저장소에서 정하지 않습니다.
+## Reproducibility and artifact provenance
+
+The released artifacts support inspection of the implementation and reproduction from compatible processed data. Full reproduction from raw measurements requires additional preprocessing code, data, and experimental metadata.
+
+- Raw and processed data, subject/session identifiers, per-sample predictions and attributions, trained weights, ONNX models, normalization archives, and Optuna databases are excluded.
+- Archived summaries and figures lack checkpoint hashes and complete environment records. Paths stored inside archived JSON files refer to the original run locations.
+- Earlier ONNX evaluation summaries are excluded because inconsistent values could not be associated unambiguously with distinct runs.
+- Legacy backups, duplicate deployment directories, and incompatible Optuna training code are excluded from the documented workflow.
+- Dependency versions are not fully pinned. Reproduction records should retain the exact configuration, dataset split, environment, and model artifacts used for each experiment.
+
+[FILE_MANIFEST.csv](FILE_MANIFEST.csv) records source paths, destination paths, file sizes, and SHA-256 hashes **at the time of repository assembly**. It is a provenance snapshot, not a checksum list for the current revision: subsequent English translations and documentation edits are not reflected in those hashes. The README, Git configuration files, and manifest itself were outside the original manifest scope.
+
+The repository does not provide finalized publication metadata or a code license. No citation or licensing terms are inferred here, and dataset distribution terms must be established with the data provider.

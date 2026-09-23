@@ -28,7 +28,7 @@ if not DEFAULT_TARGETS_PATH.exists():
     DEFAULT_TARGETS_PATH = None
 
 
-# 5-class 그룹 순서는 train.py의 COARSE_CLASSES와 같게 맞춘다.
+# Keep the five-class group order consistent with COARSE_CLASSES in train.py.
 GROUP_CLASSES = ["HC", "H", "K", "A", "C"]
 FINE_TO_GROUP = {
     "HC": "HC",

@@ -27,7 +27,7 @@ DEFAULT_CLASSES = [
     "C_F", "C_A",
 ]
 
-# 5-class 그룹 순서는 train.py의 COARSE_CLASSES와 같게 맞춘다.
+# Keep the five-class group order consistent with COARSE_CLASSES in train.py.
 GROUP_CLASSES = ["HC", "H", "K", "A", "C"]
 FINE_TO_GROUP = {
     "HC": "HC",

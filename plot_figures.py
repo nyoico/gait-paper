@@ -1,19 +1,19 @@
 #!/usr/bin/env python
-"""checkpoints/ 의 가중치만으로 confusion matrix와 learning curve를 그립니다.
+"""Plot confusion matrices and learning curves from saved checkpoints and histories.
 
-재학습은 하지 않습니다.
+No retraining is performed.
 
-- Confusion matrix: ``checkpoints/`` 안의 가중치를 그대로 불러와 test set을
-  한 번만 forward 시켜서 만듭니다. optimizer도, gradient도 쓰지 않습니다.
-- Learning curve: 가중치 파일에는 epoch별 기록이 들어 있지 않으므로 학습할 때
-  함께 저장해 둔 ``output/history.json``을 읽어서 그립니다. student와 QKD는
-  같은 형식의 기록이 ``output/student_fp/history.json``,
-  ``output/qkd/history.json``에 따로 있어서 함께 읽습니다.
+- Confusion matrices: load weights from ``checkpoints/`` and run a single
+  forward pass over the test set, without an optimizer or gradients.
+- Learning curves: weights do not contain per-epoch records, so read the
+  ``output/history.json`` file saved during training. Also read the student
+  and QKD histories stored separately in ``output/student_fp/history.json``
+  and ``output/qkd/history.json``.
 
-그림 스타일은 plot_style.py 한 곳에서만 가져옵니다. 이 스크립트는 그림만
-만들고 csv/json/npy 같은 수치 파일은 만들지 않습니다.
+All figure styling comes from plot_style.py. This script produces figures
+only; it does not write numerical data files such as CSV, JSON, or NPY.
 
-옵션은 없습니다. 그냥 실행하면 찾을 수 있는 것을 전부 그립니다::
+No options are required. Running the script plots all available results::
 
     python plot_figures.py
 """
@@ -56,58 +56,58 @@ from qkd_common import (
 
 
 # ---------------------------------------------------------------------------
-# 경로와 설정
+# Paths and configuration
 # ---------------------------------------------------------------------------
 PROCESSED_DIR = Path("processed_data")
 CHECKPOINT_DIR = Path("checkpoints")
 OUTPUT_DIR = Path("figures")
 
-# learning curve의 출처입니다. 학습할 때 저장해 둔 기록을 그대로 그립니다.
+# Learning curves use the records saved during training.
 HISTORY_DIR = Path("output")
 TEACHER_HISTORY = HISTORY_DIR / "history.json"
 STUDENT_FP_HISTORY = HISTORY_DIR / "student_fp" / "history.json"
 QKD_HISTORY = HISTORY_DIR / "qkd" / "history.json"
 
-# confusion matrix를 만들 split입니다.
+# Dataset split used to construct confusion matrices.
 SPLIT = "test"
 BATCH_SIZE = 64
 FIGURE_SUFFIX = ".png"
 
-# 학습 스크립트(train.py, train_student_fp.py, train_qkd.py)와 같은 값이어야
-# test set 구성이 그때와 같아집니다.
+# These values must match the training scripts (train.py, train_student_fp.py,
+# train_qkd.py) to reproduce the same test set.
 SEED = 42
 VAL_RATIO = 0.03
 
-# train.py의 NUM_HEADS입니다. head 수는 가중치 모양만으로는 알 수 없어서
-# config가 없는 체크포인트에만 이 값을 씁니다.
+# NUM_HEADS from train.py. The number of heads cannot be inferred from weight
+# shapes, so this value is used only for checkpoints without a configuration.
 DEFAULT_NUM_HEADS = 8
 DEFAULT_DROPOUT = 0.1
 
-# 그림 크기. 기존 train.py / qkd_common.py의 그림과 같게 맞췄습니다.
+# Figure sizes match those in train.py / qkd_common.py.
 CONFUSION_FIGSIZE_FINE = (12, 10)
 CONFUSION_FIGSIZE_GROUP = (8.5, 7.5)
 CURVE_FIGSIZE = (8.5, 6.0)
 
-# 곡선이 아닌 보조선(구간 경계)의 굵기입니다. plot_style의 LINE_WIDTH는
-# 데이터 곡선 전용이므로 여기에 쓰지 않습니다.
+# Width of guide lines marking phase boundaries. LINE_WIDTH from plot_style
+# is reserved for data curves and is not used here.
 GUIDE_LINE_WIDTH = 1.2
 
-# 단계 이름을 축 위에 적을 때 제목을 밀어 올리는 정도(pt)입니다.
+# Additional title padding (pt) when phase labels appear above the axes.
 PHASE_LABEL_TITLE_PAD = 26
 
 
 # ---------------------------------------------------------------------------
-# 체크포인트 목록
+# Checkpoint specifications
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class ModelSpec:
-    """checkpoints/ 안의 가중치 하나를 어떻게 복원하는지 적어 둔 표입니다."""
+    """Specify how to restore one set of weights from checkpoints/."""
 
-    key: str            # 파일 이름 앞에 붙는 이름
-    title: str          # 그림 제목에 쓰는 이름
-    filename: str       # checkpoints/ 안의 파일 이름
-    kind: str           # "teacher"(model.py) 또는 "student"(qkd_model.py)
-    state_key: str      # 체크포인트 안의 state_dict 키
+    key: str            # Output filename prefix
+    title: str          # Name used in figure titles
+    filename: str       # Filename within checkpoints/
+    kind: str           # "teacher" (model.py) or "student" (qkd_model.py)
+    state_key: str      # state_dict key within the checkpoint
     config_key: Optional[str] = None
 
 
@@ -126,7 +126,7 @@ MODEL_SPECS: Tuple[ModelSpec, ...] = (
         filename="last_model.pt",
         kind="teacher",
         state_key="model_state_dict",
-        config_key=None,        # last_model.pt에는 config가 없습니다.
+        config_key=None,        # last_model.pt does not contain a config.
     ),
     ModelSpec(
         key="student_fp",
@@ -172,12 +172,12 @@ MODEL_SPECS: Tuple[ModelSpec, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# 모델 복원
+# Model restoration
 # ---------------------------------------------------------------------------
 def infer_teacher_config(state: Dict[str, torch.Tensor]) -> Dict[str, Any]:
-    """config가 없는 teacher 체크포인트의 구조를 가중치 모양에서 읽어냅니다.
+    """Infer the architecture of a teacher checkpoint from its weight shapes.
 
-    num_heads만은 가중치 모양에 남지 않으므로 train.py의 기본값을 씁니다.
+    num_heads cannot be inferred from weight shapes; use the train.py default.
     """
     conv = state["sensorL_embed.conv.weight"]
     encoder_layers = {
@@ -203,15 +203,15 @@ def resolve_config(
     state: Dict[str, torch.Tensor],
     shared_teacher_config: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """체크포인트에서 모델 생성 인자를 찾습니다.
+    """Resolve model constructor arguments from a checkpoint.
 
-    1) spec이 가리키는 config 키
-    2) 같은 종류의 모델이 흔히 쓰는 config 키
-    3) (teacher인 경우) best_model.pt에서 읽어 둔 config
-    4) 가중치 모양에서 추론
+    1) The config key specified by spec
+    2) Conventional config keys for the same model type
+    3) The config loaded from best_model.pt (for teacher models)
+    4) Inference from weight shapes
 
-    best_qkd_cs.pt처럼 teacher와 student가 한 파일에 같이 들어 있는 경우가
-    있으므로, 같은 종류의 config 키만 봅니다.
+    Only consider config keys for the same model type, because checkpoints
+    such as best_qkd_cs.pt can contain both teacher and student models.
     """
     if spec.kind == "teacher":
         candidates = (spec.config_key, "config")
@@ -228,7 +228,7 @@ def resolve_config(
         return infer_teacher_config(state)
 
     raise KeyError(
-        f"{spec.filename}에 student config가 없어 모델을 복원할 수 없습니다."
+        f"Cannot restore the model: {spec.filename} has no student config."
     )
 
 
@@ -256,8 +256,8 @@ def build_model(
     else:
         model = QKDStudentModel(**config)
         model.load_state_dict(state, strict=True)
-        # LSQ quantizer의 scale과 initialized는 state_dict에 들어 있지만
-        # enabled 플래그는 들어 있지 않습니다. 학습 때와 같은 상태로 되돌립니다.
+        # The LSQ quantizer's scale and initialized state are in state_dict,
+        # but its enabled flag is not. Restore the state used during training.
         if bool(checkpoint.get("quantization_enabled", False)):
             model.enable_quantization()
         else:
@@ -272,7 +272,7 @@ def predict(
     loader: DataLoader,
     device: torch.device,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """forward만 돌려 정답과 예측을 모읍니다. 학습은 하지 않습니다."""
+    """Collect true labels and predictions using forward passes only."""
     all_true: List[int] = []
     all_pred: List[int] = []
 
@@ -295,7 +295,7 @@ def predict(
 
 
 # ---------------------------------------------------------------------------
-# 데이터 준비 (체크포인트마다 정규화 통계가 다를 수 있어 캐시해 둡니다)
+# Data preparation (cached because normalization statistics may vary by checkpoint)
 # ---------------------------------------------------------------------------
 _DATA_CACHE: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
@@ -319,7 +319,7 @@ def get_data(
         _array_key(split_indices, np.int64),
     )
     if key not in _DATA_CACHE:
-        print(f"[data] {PROCESSED_DIR} 를 읽는 중입니다 ...", flush=True)
+        print(f"[data] Loading {PROCESSED_DIR} ...", flush=True)
         _DATA_CACHE[key] = prepare_data(
             processed_dir=PROCESSED_DIR,
             batch_size=BATCH_SIZE,
@@ -342,9 +342,9 @@ def plot_confusion(
     path: Path,
     normalize: bool = False,
 ) -> None:
-    """블루 계열 confusion matrix 한 장을 저장합니다.
+    """Save one confusion matrix using a blue colormap.
 
-    plot_style의 약속대로 컬러바는 쓰지 않고 셀 안에 값을 적습니다.
+    Following plot_style conventions, annotate cells and omit the colorbar.
     """
     values = matrix.astype(np.float64)
     if normalize:
@@ -375,7 +375,7 @@ def plot_confusion(
             value = values[i, j]
             if normalize:
                 if value <= 0.0:
-                    continue    # 비율 그림에서 0.0을 다 적으면 읽기 어렵습니다.
+                    continue    # Omit zero percentages to improve readability.
                 text = f"{value:.1f}"
             else:
                 text = str(int(matrix[i, j]))
@@ -399,7 +399,7 @@ def draw_confusion_figures(
     y_true: np.ndarray,
     y_pred: np.ndarray,
 ) -> List[Path]:
-    """12-class와 5-class를, 개수판과 백분율판으로 각각 저장합니다."""
+    """Save count and percentage matrices for the 12-class and 5-class tasks."""
     group_true = fine_to_group_indices(y_true)
     group_pred = fine_to_group_indices(y_pred)
 
@@ -458,8 +458,8 @@ def draw_all_confusions(specs: Sequence[ModelSpec]) -> List[Path]:
     print(f"Device: {device}")
     written: List[Path] = []
 
-    # config가 없는 teacher 체크포인트(last_model.pt, co-studying teacher)를
-    # 위해 best_model.pt의 config를 미리 읽어 둡니다.
+    # Preload the config from best_model.pt for teacher checkpoints without
+    # a config (last_model.pt and the co-studying teacher).
     shared_teacher_config: Optional[Dict[str, Any]] = None
     teacher_best = CHECKPOINT_DIR / "best_model.pt"
     if teacher_best.exists():
@@ -474,14 +474,14 @@ def draw_all_confusions(specs: Sequence[ModelSpec]) -> List[Path]:
 
         state = checkpoint.get(spec.state_key)
         if not isinstance(state, dict):
-            print(f"  [skip] '{spec.state_key}' 가 체크포인트에 없습니다.")
+            print(f"  [skip] Checkpoint does not contain '{spec.state_key}'.")
             continue
 
         try:
             config = resolve_config(spec, checkpoint, state, shared_teacher_config)
             model = build_model(spec, checkpoint, state, config, device)
         except (KeyError, RuntimeError, TypeError) as error:
-            print(f"  [skip] 모델을 복원하지 못했습니다: {error}")
+            print(f"  [skip] Could not restore the model: {error}")
             continue
 
         try:
@@ -490,7 +490,7 @@ def draw_all_confusions(specs: Sequence[ModelSpec]) -> List[Path]:
                 checkpoint.get("split_indices"),
             )
         except FileNotFoundError as error:
-            print(f"  [stop] 데이터를 찾지 못했습니다: {error}")
+            print(f"  [stop] Could not find the data: {error}")
             del model
             break
 
@@ -516,7 +516,7 @@ class Curve:
 
 @dataclass
 class PhaseSpan:
-    """QKD처럼 여러 단계로 나뉜 학습에서 한 단계가 차지하는 epoch 구간입니다."""
+    """Represent the epoch interval of one phase in multiphase training, such as QKD."""
 
     start: float
     end: float
@@ -535,7 +535,7 @@ class CurveSet:
 
 
 def _clean(values: Sequence[Any]) -> List[float]:
-    """None을 nan으로 바꿔서 기록이 없는 구간은 그대로 비워 둡니다."""
+    """Replace None with nan to leave gaps where records are missing."""
     return [float("nan") if value is None else float(value) for value in values]
 
 
@@ -563,12 +563,12 @@ def plot_curve(
 
     axes.set_xlabel("Epoch")
     axes.set_ylabel(ylabel)
-    # 단계 이름을 축 바로 위에 적으므로 제목을 그만큼 밀어 올립니다.
+    # Raise the title to accommodate phase labels immediately above the axes.
     axes.set_title(title, pad=PHASE_LABEL_TITLE_PAD if phases else None)
     axes.legend()
 
-    # 단계 경계는 얇은 회색 점선으로만 그려 데이터 곡선과 구분하고, 이름은
-    # 축 바깥 위쪽에 적어 곡선이나 범례와 겹치지 않게 합니다.
+    # Distinguish phase boundaries from data curves with thin gray dashed lines.
+    # Place labels above the axes to avoid overlapping curves or legends.
     for index, phase in enumerate(phases):
         if index > 0:
             axes.axvline(
@@ -631,10 +631,10 @@ def draw_curve_figures(curve_set: CurveSet) -> List[Path]:
 
 
 def read_teacher_history(path: Path) -> CurveSet:
-    """output/history.json입니다. train.py가 epoch마다 남긴 기록입니다.
+    """Read per-epoch records saved by train.py in output/history.json.
 
-    예전 실행본은 train_acc/val_acc, 최근 실행본은 train_fine_acc/
-    train_coarse_acc를 씁니다. 둘 다 받습니다.
+    Older runs use train_acc/val_acc, while newer runs use train_fine_acc/
+    train_coarse_acc. Both formats are supported.
     """
     raw = json.loads(path.read_text(encoding="utf-8"))
 
@@ -665,7 +665,7 @@ def read_teacher_history(path: Path) -> CurveSet:
 
 
 def read_student_fp_history(path: Path) -> CurveSet:
-    """train_student_fp.py가 남긴 epoch별 행 목록입니다."""
+    """Read the list of per-epoch records saved by train_student_fp.py."""
     rows = json.loads(path.read_text(encoding="utf-8"))
 
     def column(name: str) -> List[float]:
@@ -707,10 +707,10 @@ TEACHER_SERIES = (
 
 
 def read_qkd_history(path: Path) -> CurveSet:
-    """train_qkd.py가 남긴 3단계 기록을 한 축 위에 이어 붙입니다.
+    """Concatenate the three training phases recorded by train_qkd.py.
 
-    단계마다 손실 정의가 다릅니다(SS는 CE, CS/TU는 CE + T^2*KL). 그래서 손실
-    그림에는 단계 경계선을 함께 그려 구간별로 읽도록 합니다.
+    Loss definitions differ by phase (CE for SS, CE + T^2*KL for CS/TU).
+    Mark phase boundaries in loss plots to support phase-specific interpretation.
     """
     raw = json.loads(path.read_text(encoding="utf-8"))
 
@@ -737,7 +737,7 @@ def read_qkd_history(path: Path) -> CurveSet:
             epochs.append(offset + index)
             train = row.get("train", {})
             if name == "cs":
-                # co-studying은 student와 teacher 기록이 나뉘어 있습니다.
+                # Co-studying stores separate student and teacher records.
                 series["train_loss"].append(train.get("student_loss"))
                 series["val_loss"].append(row.get("student_val_loss"))
                 series["train_acc12"].append(
@@ -777,7 +777,7 @@ def read_qkd_history(path: Path) -> CurveSet:
                     row.get("train_accuracy_5class", train.get("group_accuracy"))
                 )
                 series["val_acc5"].append(row.get("val_accuracy_5class"))
-                # teacher는 co-studying에서만 움직이므로 나머지 구간은 비웁니다.
+                # The teacher is updated only during co-studying; leave other phases empty.
                 for teacher_name in TEACHER_SERIES:
                     series[teacher_name].append(None)
         offset += len(rows)
@@ -809,7 +809,7 @@ def read_qkd_history(path: Path) -> CurveSet:
 
 
 def draw_all_curves() -> List[Path]:
-    """output/ 아래의 history.json을 모두 읽어 learning curve를 그립니다."""
+    """Read training histories under output/ and plot learning curves."""
     sources = (
         (TEACHER_HISTORY, read_teacher_history),
         (STUDENT_FP_HISTORY, read_student_fp_history),
@@ -819,12 +819,12 @@ def draw_all_curves() -> List[Path]:
     written: List[Path] = []
     for path, reader in sources:
         if not path.exists():
-            print(f"[skip] history 파일이 없습니다: {path}")
+            print(f"[skip] History file does not exist: {path}")
             continue
         try:
             curve_set = reader(path)
         except (KeyError, TypeError, ValueError) as error:
-            print(f"[skip] {path} 를 읽지 못했습니다: {error}")
+            print(f"[skip] Could not read {path}: {error}")
             continue
         print(
             f"[{curve_set.key}] {path} "
@@ -835,7 +835,7 @@ def draw_all_curves() -> List[Path]:
 
 
 # ---------------------------------------------------------------------------
-# 실행
+# Entry point
 # ---------------------------------------------------------------------------
 def main() -> int:
     apply_paper_style()
@@ -848,11 +848,11 @@ def main() -> int:
         if (CHECKPOINT_DIR / spec.filename).exists()
     ]
     if not specs:
-        print(f"{CHECKPOINT_DIR} 에서 쓸 수 있는 체크포인트를 찾지 못했습니다.")
+        print(f"No usable checkpoints found in {CHECKPOINT_DIR}.")
 
     written = draw_all_confusions(specs) + draw_all_curves()
 
-    print(f"\n{len(written)}개의 그림을 {OUTPUT_DIR} 에 저장했습니다.")
+    print(f"\nSaved {len(written)} figures to {OUTPUT_DIR}.")
     for path in written:
         print(f"  {path}")
     return 0

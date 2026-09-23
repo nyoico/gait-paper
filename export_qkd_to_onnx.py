@@ -1,16 +1,16 @@
-"""fake quantization을 끈 student를 순수 FP32 ONNX로 내보낸다.
+"""Export the student as a plain FP32 ONNX graph with fake quantization disabled.
 
-export_qkd_qat_qdq.py와 헷갈리지 마십시오. 둘은 한 줄만 다릅니다.
+The key difference from export_qkd_qat_qdq.py is the quantization preparation step.
 
-    이 파일                 : disable_quantization() -> Q/DQ 없는 FP32 그래프.
-        INT8이 필요하면 이어서 quantize_onnx_int8.py를 실행해 학습 입력
-        calibration으로 정적 양자화한다. train_qkd.py가 학습한 scale은
-        여기서 쓰이지 않고 버려진다.
+    This file             : disable_quantization() -> FP32 graph without Q/DQ.
+        For INT8, subsequently run quantize_onnx_int8.py to perform static
+        quantization using training inputs for calibration. The scales learned
+        by train_qkd.py are discarded and are not used in this export.
 
-    export_qkd_qat_qdq.py   : 학습된 scale을 Q/DQ 노드로 그대로 굽는다.
+    export_qkd_qat_qdq.py  : Embed the learned scales directly in Q/DQ nodes.
 
-기본 출력은 deploy/student_qkd_fp32.onnx이며, quantize_onnx_int8.py의 기본
-입력 경로와 같습니다.
+The default output is deploy/student_qkd_fp32.onnx, which matches the default
+input path of quantize_onnx_int8.py.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from qkd_model import QKDStudentModel, LearnedStepFakeQuantizer
 @torch.no_grad()
 def prepare_qat_model_for_onnx(model: QKDStudentModel) -> None:
     """
-    학습된 QAT scale을 고정하고 모든 fake quantizer를 활성화한다.
+    Freeze the learned QAT scales and enable all fake quantizers.
     """
 
     uninitialized = []
@@ -54,7 +54,7 @@ def prepare_qat_model_for_onnx(model: QKDStudentModel) -> None:
 
     if uninitialized:
         raise RuntimeError(
-            "초기화되지 않은 quantizer가 있습니다: "
+            "Uninitialized quantizers were found: "
             + ", ".join(uninitialized)
         )
 

@@ -60,9 +60,9 @@ class _LearnedFakeQuantizeFn(torch.autograd.Function):
     @parse_args("v", "v", "i", "i")
     def symbolic(g, x, scale, qmin, qmax):
         """
-        QAT fake quantizer를 ONNX QDQ로 변환한다.
+        Convert the QAT fake quantizer to ONNX QDQ operations.
 
-        기존 구현은 symmetric quantization이므로 zero_point는 항상 0이다.
+        The existing implementation uses symmetric quantization, so zero_point is always 0.
         """
 
         if qmin < 0:

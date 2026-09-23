@@ -200,7 +200,7 @@ def _plot_joint_heatmap(
     # values_td: [T, D] -> [D, T]
     values_dt = values_td.T
 
-    # 폰트가 커진 만큼 여백도 함께 키웁니다.
+    # Increase the margins to accommodate the larger fonts.
     figure_width = max(12.5, values_dt.shape[1] / 8.0)
     figure_height = max(6.0, values_dt.shape[0] * 0.62)
     plt.figure(figsize=(figure_width, figure_height))
@@ -313,11 +313,11 @@ def _apply_cmap_overrides(
     scheme: TimingColorScheme,
     args: argparse.Namespace,
 ) -> TimingColorScheme:
-    """--*-cmap 인자로 scheme의 개별 컬러맵을 덮어씁니다.
+    """Override individual scheme colormaps with --*-cmap arguments.
 
-    dataclasses.replace를 쓰므로 TimingColorScheme에 필드가 추가되어도
-    여기서 빠뜨리지 않습니다. 사용자가 컬러맵을 직접 지정하면 더 이상
-    색각이상 검증을 통과한 조합이라고 보장할 수 없으므로 cvd_safe를 내립니다.
+    dataclasses.replace preserves any fields added to TimingColorScheme.
+    User-specified colormaps are no longer guaranteed to form a combination
+    validated for CVD, so clear the cvd_safe flag.
     """
     overrides = {
         "signed": args.signed_cmap,
@@ -410,7 +410,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     scheme_names = expand_scheme_names(args.color_scheme)
-    # Scheme 하나면 기존 경로 그대로, 둘 이상이면 scheme별 하위 디렉토리를 씁니다.
+    # Keep the original layout for one scheme; use subdirectories for multiple schemes.
     use_scheme_subdirs = len(scheme_names) > 1
 
     mean_signed = np.full(
@@ -468,7 +468,7 @@ def main() -> None:
         args.absolute_percentile,
     )
 
-    # 색상만 다르고 데이터는 같으므로, 계산은 한 번 하고 렌더링만 반복합니다.
+    # Compute the shared data once and repeat only rendering for each color scheme.
     scheme_dirs: dict[str, str] = {}
     for scheme_name in scheme_names:
         scheme = _apply_cmap_overrides(resolve_timing_scheme(scheme_name), args)
@@ -574,7 +574,7 @@ def main() -> None:
             name: int(count) for name, count in zip(class_names, counts)
         },
         "min_samples": int(args.min_samples),
-        # 컬러바를 그리지 않으므로 색 범위를 여기에 남깁니다.
+        # Record color limits here because figures do not include colorbars.
         "shared_signed_color_limit": signed_limit,
         "shared_absolute_color_limit": absolute_limit,
         "all_classes_time_color_limit": float(time_limit),

@@ -30,7 +30,7 @@ PROCESSED_DIR = Path("processed_data")
 CHECKPOINT_DIR = Path("checkpoints")
 OUTPUT_DIR = Path("output/qkd")
 
-# 12개 세부 클래스 인덱스를 5개 상위 그룹 인덱스로 옮기는 표.
+# Lookup table mapping the 12 fine-class indices to five coarse-group indices.
 FINE_TO_GROUP_INDEX = torch.tensor(
     [GROUP_LABEL_TO_IDX[FINE_TO_GROUP[name]] for name in VALID_CLASSES],
     dtype=torch.long,
@@ -38,7 +38,7 @@ FINE_TO_GROUP_INDEX = torch.tensor(
 
 
 def count_group_correct(logits: torch.Tensor, labels: torch.Tensor) -> int:
-    """예측과 정답을 5개 상위 그룹으로 합친 뒤 맞은 개수를 센다."""
+    """Count correct predictions after mapping predictions and labels to five coarse groups."""
     table = FINE_TO_GROUP_INDEX.to(labels.device)
     return int((table[logits.argmax(dim=1)] == table[labels]).sum().item())
 
@@ -180,7 +180,7 @@ def self_studying_epoch(student, loader, optimizer, device):
     group_accuracy = total_group_correct / total_count
     return {
         "loss": total_loss / total_count,
-        # `accuracy`는 기존 키 유지용이며 12-class 정확도다.
+        # Retain the existing `accuracy` key for 12-class accuracy.
         "accuracy": fine_accuracy,
         "fine_accuracy": fine_accuracy,
         "group_accuracy": group_accuracy,
@@ -336,7 +336,7 @@ def tutoring_epoch(teacher, student, loader, student_optimizer, device):
         "loss": total_loss / total_count,
         "ce": total_ce / total_count,
         "kl": total_kl / total_count,
-        # `accuracy`는 기존 키 유지용이며 12-class 정확도다.
+        # Retain the existing `accuracy` key for 12-class accuracy.
         "accuracy": fine_accuracy,
         "fine_accuracy": fine_accuracy,
         "group_accuracy": group_accuracy,
@@ -445,7 +445,7 @@ def main():
         raise RuntimeError(f"Student exceeds 5M parameters: {student_params['total']:,}")
 
     history = {"ss": [], "cs": [], "tu": []}
-    # SS/CS/TU 단계별 정확도를 12-class와 5-class로 함께 모은다.
+    # Collect both 12-class and 5-class accuracies for each SS/CS/TU stage.
     stage_accuracy = {}
 
     # -------------------- Phase 1: Self-studying --------------------

@@ -22,13 +22,13 @@ print("Gemm:", op_counts["Gemm"])
 
 if op_counts["QuantizeLinear"] == 0:
     raise RuntimeError(
-        "QuantizeLinear이 없습니다. "
-        "QAT symbolic export가 적용되지 않았습니다."
+        "No QuantizeLinear nodes were found. "
+        "QAT symbolic export was not applied."
     )
 
 if op_counts["DequantizeLinear"] == 0:
     raise RuntimeError(
-        "DequantizeLinear이 없습니다."
+        "No DequantizeLinear nodes were found."
     )
 
 print("QAT QDQ ONNX validation: OK")
