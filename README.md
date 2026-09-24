@@ -1,4 +1,4 @@
-# Gait Classification with Quantization-Aware Knowledge Distillation
+# From Force Plates to the Edge: A Compact Transformer for Gait Classification with Temporal Attribution and 3D Visualization
 
 ## Project Overview
 
